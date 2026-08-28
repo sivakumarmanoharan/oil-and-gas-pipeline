@@ -1,0 +1,5 @@
+ingestion/data/*.csv
+__pycache__/
+*.pyc
+exxonmobildb/
+.env
