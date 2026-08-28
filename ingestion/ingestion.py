@@ -50,6 +50,7 @@ def ensure_schema(engine, schema_name: str) -> None:
 
 
 def load_csv(filepath: str) -> pd.DataFrame:
+    """Load a CSV file into a DataFrame, adding metadata columns and removing duplicates."""
     df = pd.read_csv(filepath)
     df["_source_file"] = os.path.basename(filepath)
     df["_ingested_at"] = pd.Timestamp.now('UTC')
@@ -61,13 +62,17 @@ def load_csv(filepath: str) -> pd.DataFrame:
         df = df[~dupes].reset_index(drop=True)
     logger.info(f"  Loaded {len(df):,} rows, {len(df.columns)} columns from {os.path.basename(filepath)}")
     return df
+
+
 def create_engine_common():
+    '''Create a SQLAlchemy engine for PostgreSQL using environment variables.'''
     connection_url = (
             f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
         )
     return create_engine(connection_url)
 
 def upsert_to_postgres(df: pd.DataFrame, table_name: str ,engine) -> None:
+    """Upsert the DataFrame into the specified PostgreSQL table using a staging table."""
     staging_table = f"staging_{table_name}"
     ensure_schema(engine, "raw")
     update_cols = [c for c in df.columns if c not in ("_ingested_at","_row_hash")]
@@ -98,11 +103,13 @@ def upsert_to_postgres(df: pd.DataFrame, table_name: str ,engine) -> None:
     
 
 def add_row_hash(df: pd.DataFrame) -> pd.Series:
+    """Compute a SHA256 hash for each row based on its business columns."""
     business_cols = [c for c in df.columns if not c.startswith("_")]
     return df[business_cols].apply(
         lambda row: hashlib.sha256("|".join(str(v) for v in row).encode()).hexdigest(),axis=1,
     )
 def run(data_dir: str, force_download: bool, tables: list[str] | None, engine) -> None:
+    '''Run the ingestion pipeline: download dataset, load CSVs, and upsert into PostgreSQL.'''
     logger.info("=== Starting ingestion pipeline ===")
     os.makedirs(data_dir, exist_ok=True)
     existing = glob.glob(os.path.join(data_dir, "*.csv"))
@@ -125,6 +132,10 @@ def run(data_dir: str, force_download: bool, tables: list[str] | None, engine) -
 
 
 if __name__ == "__main__":
+    '''Run the ingestion pipeline with command-line arguments.
+    Usage:
+        python ingestion.py --data-dir ./data --force-download --tables table1 table2
+    '''
     parser= argparse.ArgumentParser()
     parser.add_argument("--data-dir", default = os.path.join(PROJECT_DIR,"data"))
     parser.add_argument("--force-download", action="store_true")
