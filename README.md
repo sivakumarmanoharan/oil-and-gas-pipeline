@@ -108,10 +108,28 @@ See `.env.example` for the full list. At minimum you need Postgres connection de
 - **Why `MERGE` instead of `INSERT ... ON CONFLICT`?** Both are valid; `MERGE` (Postgres 15+) was chosen here as the primary upsert mechanism, with the `_row_hash` unique constraint as a safety net underneath it. A single source batch containing two identical hashes is handled by pre-merge deduplication rather than relying on `MERGE`'s per-statement conflict handling.
 - **Why is the raw layer untyped?** Ingestion should never fail because of a bad value in one row. Type safety belongs in the transform layer, where a failing value can be caught, logged, and inspected — not silently block the whole load.
 
+## Mistakes learnt in this phase
+- **Docker & Networking**
+    - ```localhost``` inside Docker always means the container itself — never the host or another service. Always use the service name (postgres-pipeline) as the hostname inside Docker.
+    - Host-mapped ports vs internal ports — ```5433:5432``` means ```5433``` on your machine, ``5432`` inside Docker. Services talking to each other inside Docker always use the internal port (5432).
+    - Not using ```--build``` after code changes — ```docker compose up -d``` reuses the cached image. The pipeline was running old code for a long time because of this.
+    - Dockerfile filename casing — ```DockerFile``` vs ```Dockerfile```. Linux (where Docker runs) is case-sensitive. Always use ```Dockerfile```.
+    - Hardcoding credentials directly in docker-compose.yml — the .env discipline was abandoned mid-way. All values should come from ```.env``` via ```${VAR}``` interpolation.
+    - compose file location drift — having two docker-compose.yml files at different directory levels caused doubled paths (```oil-and-gas-pipeline/oil-and-gas-pipeline/ingestion```).
+- **Environment Variables**
+    - Renaming variables (DB_HOST → ```PIPELINE_DB_HOST```) without rebuilding the image — the container kept running the old code that read the old names, causing hours of confusion.
+    - Two sources of truth for credentials — ```postgres``` service hardcoded, ```ingestion``` service used .env. When one changed, they fell out of sync and caused connection failures.
+    - ```$$VAR``` in PowerShell — ```$$``` expands to the PID in PowerShell, not a literal $. Use single quotes or ```$env:VAR``` syntax on Windows.
+- **Airflow Specifically**
+    - ```_PIP_ADDITIONAL_REQUIREMENTS``` is for quick testing only — the compose file even warns this. For real deployments, build a custom Airflow image with providers pre-installed.
+    - Hardcoded Windows path in the DAG — ```C:/ETL Pipeline ETL Pipeline Project```. in a Mount will never work inside a Linux container.
+    - ```KAGGLE_TOKEN``` vs ```KAGGLE_USERNAME/KAGGLE_KEY ``` mismatch — the DAG injected env vars that didn't exist in .env, passing None silently.
+    - Truncated secret keys — ```AIRFLOW__API_AUTH__JWT_SECRET``` was 62 hex chars instead of 64. Always generate with ```secrets.token_hex(32)```.
+    - Missing ```AIRFLOW_UID``` in ```.env``` — causes permission issues in airflow-init that block other services from starting.
 ## Roadmap
 
 - [x] Phase 1 — Idempotent, containerized ingestion
-- [ ] Phase 2 — Orchestration (Airflow DAG: extract → validate → load)
+- [x] Phase 2 — Orchestration (Airflow DAG: extract → validate → load)
 - [ ] Phase 3 — Transformation (dbt models splitting WTI / NatGas / XOM into staging views)
 - [ ] Phase 4 — Data quality gates (dbt tests / Great Expectations)
 - [ ] Phase 5 — Analytics layer (Metabase dashboards on price correlation, volatility)
