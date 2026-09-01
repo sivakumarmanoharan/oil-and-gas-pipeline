@@ -108,24 +108,33 @@ See `.env.example` for the full list. At minimum you need Postgres connection de
 - **Why `MERGE` instead of `INSERT ... ON CONFLICT`?** Both are valid; `MERGE` (Postgres 15+) was chosen here as the primary upsert mechanism, with the `_row_hash` unique constraint as a safety net underneath it. A single source batch containing two identical hashes is handled by pre-merge deduplication rather than relying on `MERGE`'s per-statement conflict handling.
 - **Why is the raw layer untyped?** Ingestion should never fail because of a bad value in one row. Type safety belongs in the transform layer, where a failing value can be caught, logged, and inspected — not silently block the whole load.
 
-## Mistakes learnt in this phase
-- **Docker & Networking**
-    - ```localhost``` inside Docker always means the container itself — never the host or another service. Always use the service name (postgres-pipeline) as the hostname inside Docker.
-    - Host-mapped ports vs internal ports — ```5433:5432``` means ```5433``` on your machine, ``5432`` inside Docker. Services talking to each other inside Docker always use the internal port (5432).
-    - Not using ```--build``` after code changes — ```docker compose up -d``` reuses the cached image. The pipeline was running old code for a long time because of this.
-    - Dockerfile filename casing — ```DockerFile``` vs ```Dockerfile```. Linux (where Docker runs) is case-sensitive. Always use ```Dockerfile```.
-    - Hardcoding credentials directly in docker-compose.yml — the .env discipline was abandoned mid-way. All values should come from ```.env``` via ```${VAR}``` interpolation.
-    - compose file location drift — having two docker-compose.yml files at different directory levels caused doubled paths (```oil-and-gas-pipeline/oil-and-gas-pipeline/ingestion```).
-- **Environment Variables**
-    - Renaming variables (DB_HOST → ```PIPELINE_DB_HOST```) without rebuilding the image — the container kept running the old code that read the old names, causing hours of confusion.
-    - Two sources of truth for credentials — ```postgres``` service hardcoded, ```ingestion``` service used .env. When one changed, they fell out of sync and caused connection failures.
-    - ```$$VAR``` in PowerShell — ```$$``` expands to the PID in PowerShell, not a literal $. Use single quotes or ```$env:VAR``` syntax on Windows.
-- **Airflow Specifically**
-    - ```_PIP_ADDITIONAL_REQUIREMENTS``` is for quick testing only — the compose file even warns this. For real deployments, build a custom Airflow image with providers pre-installed.
-    - Hardcoded Windows path in the DAG — ```C:/ETL Pipeline ETL Pipeline Project```. in a Mount will never work inside a Linux container.
-    - ```KAGGLE_TOKEN``` vs ```KAGGLE_USERNAME/KAGGLE_KEY ``` mismatch — the DAG injected env vars that didn't exist in .env, passing None silently.
-    - Truncated secret keys — ```AIRFLOW__API_AUTH__JWT_SECRET``` was 62 hex chars instead of 64. Always generate with ```secrets.token_hex(32)```.
-    - Missing ```AIRFLOW_UID``` in ```.env``` — causes permission issues in airflow-init that block other services from starting.
+## Lessons Learned — Mistakes to Avoid
+
+### Docker & Networking
+- [ ] `localhost` inside a container always refers to the container itself — never the host or another service. Use the Compose **service name** (e.g. `postgres-pipeline`) as the hostname for container-to-container traffic.
+- [ ] Host-mapped port ≠ internal port. `"5433:5432"` means `5433` on the host machine, `5432` inside the Docker network. Containers talking to each other must always use the **internal** port.
+- [ ] Dockerfile filename casing matters — Docker builds run on Linux, which is case-sensitive. Always name it exactly `Dockerfile`, not `DockerFile`.
+- [ ] Never hardcode credentials directly in `docker-compose.yml`. Use `${VAR}` interpolation sourced from `.env` — one source of truth, not two.
+- [ ] Watch for compose-file location drift. If `docker-compose.yml` moves, every relative `build.context` and `volumes` path inside it needs to move with it, or paths silently double up.
+- [ ] YAML merge keys (`<<: *anchor`) don't merge lists — if a service redefines a key the anchor already sets (e.g. `volumes:`), the local definition **replaces** it entirely rather than appending. Always copy the anchor's full value and extend it explicitly.
+
+### Environment Variables
+- [ ] Renaming an env var (e.g. `DB_HOST` → `PIPELINE_DB_HOST`) means updating **every** file that references it — the script that reads it, every Compose service that sets it, and any orchestrator (DAG) that passes it — and rebuilding any image that bundles the old code.
+- [ ] Keep exactly one source of truth for each credential. If one service hardcodes a value and another reads it from `.env`, they will eventually drift out of sync.
+- [ ] Generic variable names (`DB_HOST`, `DB_PORT`) can collide with the same names used internally by other tools sharing the same environment (e.g. Airflow's own entrypoint script). Namespace project-specific variables (`PIPELINE_DB_HOST`) to avoid silent collisions.
+
+### Airflow Specifically
+- [ ] `DockerOperator`'s `Mount(source=...)` must be an **absolute path on the host**, not a relative one — the Docker daemon creating the mount runs on the host, not inside the Airflow container.
+- [ ] Double-check exact env var names expected by third-party libraries (e.g. `kagglehub` needs `KAGGLE_USERNAME`/`KAGGLE_KEY` specifically) — a mismatched name fails silently as `None`, not with a clear error.
+- [ ] `_PIP_ADDITIONAL_REQUIREMENTS` in the official Compose template is documented as quick-test-only — for anything more permanent, build a custom Airflow image with providers pre-installed instead.
+- [ ] Set `AIRFLOW_UID` in `.env` before first startup — an unset value can cause file-permission issues in `airflow-init` that block other services from coming up cleanly.
+
+### General Debugging Discipline
+- [ ] Check the actual file/directory contents (`cat`, `dir -Force`) before assuming an edit landed — several bugs this session were "the fix was right, but it wasn't actually saved/in the right file."
+- [ ] Read tracebacks bottom-up, and treat the *first* concrete error as the most trustworthy signal — later errors are often downstream consequences of it.
+- [ ] Rebuild (`docker compose build`) after any change to code or dependencies that a container bundles — `docker compose up -d` alone will keep running a stale image.
+- [ ] Verify a fix by actually rerunning the failing step, not by inspecting the code and assuming it will now work.
+
 ## Roadmap
 
 - [x] Phase 1 — Idempotent, containerized ingestion
