@@ -36,7 +36,7 @@ def download_dataset(data_dir: str, force_download: bool) -> list[str]:
     local_files = []
     for src in csv_files:
         dst = os.path.join(data_dir, os.path.basename(src))
-        shutil.copy2(src, dst)
+        shutil.copyfile(src, dst)
         logger.info(f"  Saved: {os.path.basename(src)}")
         local_files.append(dst)
 
@@ -112,13 +112,7 @@ def run(data_dir: str, force_download: bool, tables: list[str] | None, engine) -
     '''Run the ingestion pipeline: download dataset, load CSVs, and upsert into PostgreSQL.'''
     logger.info("=== Starting ingestion pipeline ===")
     os.makedirs(data_dir, exist_ok=True)
-    existing = glob.glob(os.path.join(data_dir, "*.csv"))
-    if existing and not force_download:
-        logger.info(f"  Using {len(existing)} cached CSV(s) in {data_dir}")
-        csv_files = existing                  
-    else:
-        csv_files = download_dataset(data_dir, force_download)
-
+    csv_files = download_dataset(data_dir, force_download)
     for filepath in csv_files:
         raw_name = os.path.splitext(os.path.basename(filepath))[0]
         table_name = raw_name.lower().replace(" ", "_").replace("-", "_")

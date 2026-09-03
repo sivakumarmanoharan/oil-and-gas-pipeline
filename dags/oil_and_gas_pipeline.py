@@ -39,8 +39,8 @@ with DAG(
         docker_url="unix://var/run/docker.sock",
         mounts=mounts,
         environment={
-            "PIPELINE_DB_HOST": "postgres-pipeline",   # hardcoded — must be the container network name, not .env's localhost
-            "PIPELINE_DB_PORT": "5432",                 # hardcoded — internal container port, not the host-mapped 5433
+            "PIPELINE_DB_HOST": "postgres-pipeline",   
+            "PIPELINE_DB_PORT": "5432",                
             "PIPELINE_DB_NAME": DB_NAME,
             "PIPELINE_DB_USER": DB_USER,
             "PIPELINE_DB_PASSWORD": DB_PASSWORD,
