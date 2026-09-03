@@ -1,0 +1,8 @@
+version: 2
+
+sources:
+  - name: raw 
+    schema: raw
+    tables:
+      - name: og_sac_data
+        description: "This table contains the raw data for the OG SAC project. It includes all the necessary fields and attributes required for analysis and reporting. The data is sourced from various upstream and downstream processes, ensuring comprehensive coverage of the project's scope."

@@ -135,10 +135,59 @@ See `.env.example` for the full list. At minimum you need Postgres connection de
 - [ ] Rebuild (`docker compose build`) after any change to code or dependencies that a container bundles — `docker compose up -d` alone will keep running a stale image.
 - [ ] Verify a fix by actually rerunning the failing step, not by inspecting the code and assuming it will now work.
 
+## Phase 3 — Transformation (dbt)
+ 
+Raw data (`raw.og_sac_data`) is transformed through dbt into a star schema, following medallion architecture: **bronze** (raw, untyped) → **silver** (staging, typed/filtered) → **gold** (marts, modeled for consumption).
+ 
+### Staging layer (silver)
+ 
+One model per instrument, each a thin `SELECT` against `source('raw', 'og_sac_data')`:
+ 
+- `stg_wti.sql` — filtered to `Ticker = 'CL=F'`
+- `stg_natgas.sql` — filtered to natural gas ticker
+- `stg_xom.sql` — filtered to `Ticker = 'XOM'`
+Each casts raw `TEXT` columns to proper types (`date`, `numeric`, `bigint`) and narrows to one instrument's rows. This is the first point in the pipeline where type safety exists — ingestion deliberately defers it here (see Phase 1 design decisions above).
+ 
+Declared as a dbt **source** (not a model) in `models/staging/sources.yml`, since it's external data dbt doesn't build:
+ 
+```yaml
+version: 2
+ 
+sources:
+  - name: raw
+    schema: raw
+    tables:
+      - name: og_sac_data
+        description: "..."
+```
+ 
+### Mart layer (gold) — star schema
+ 
+- **`dim_commodity.sql`** — one row per instrument (`ticker`, `asset_name`, `asset_type`), pulled via `SELECT DISTINCT` straight from `source('raw', 'og_sac_data')` rather than through staging, since this is dimension-shaped (one row per instrument) not staging-shaped (one row per instrument-date) — avoids duplicating the same static rows three ways across three staging models.
+- **`dim_date.sql`** — one row per calendar date, dynamically bounded to `MIN`/`MAX` of the source data using `generate_series()` over a CTE, with derived columns (`day`, `month`, `year`, `day_of_week`, `is_weekend`) via `EXTRACT()`.
+- **`fact_commodity_price.sql`** — one row per (date, commodity), built via `UNION ALL` across all three staging models, referenced with `ref()` (not `source()`) since these are dbt-built models, not external raw data.
+### Key concepts learned
+ 
+- **`ref()` vs `source()`.** `ref()` points at another dbt model and builds dbt's dependency graph (DAG) — it's how dbt knows build order automatically and resolves the right schema/table per environment. `source()` points at external data dbt doesn't control (declared once in a `sources.yml`, then referenced via the macro everywhere needed) — used for the raw ingestion table.
+- **Why transform raw into a fact/dim model at all**, rather than querying `raw.og_sac_data` directly: raw is untyped (`TEXT` everywhere), not modeled for how questions actually get asked (no clean date/commodity grain), and has no single source of truth for casting/classification logic — every downstream query would otherwise re-derive it inconsistently. The mart layer computes that once, cleanly, for every consumer.
+- **Medallion architecture vs. star schema** are different concepts operating at different levels: medallion is the *layering philosophy* (bronze → silver → gold, progressively adding value); star schema is a *modeling technique* chosen specifically for how the gold layer is structured here (facts + dimensions). Not redundant — this project uses both together.
+- **Folder-level materialization config** in `dbt_project.yml` — staging models default to `view` (cheap, thin pass-throughs), marts default to `table` (avoid recomputing joins/aggregations on every query).
+### YAML gotchas hit while writing `sources.yml`
+ 
+- `key:value` with no space after the colon is not valid YAML — it's read as one unbroken string, not a mapping, and throws "mapping values are not allowed in this context."
+- A `- ` prefix starts a *new* list item — a property meant to belong to the same table entry (e.g. `description` alongside `name`) must be indented under the same `-` bullet, not given its own `-`.
+- Trailing commas before `FROM` in a SQL `SELECT` list are invalid whenever nothing follows but whitespace — easy to leave behind when reordering or removing the last column.
+### Postgres/SQL gotchas
+ 
+- `::string` is not a valid Postgres cast (that's Snowflake/pandas vocabulary) — use `::text` or `::varchar`.
+- `generate_series(start, end, interval)` is the core building block for dynamically generating a date spine, bounded by `MIN()`/`MAX()` from source data rather than hardcoded literals.
+- A trailing `;` at the end of a dbt model's final `SELECT` can break dbt's internal `CREATE VIEW/TABLE AS (...)` wrapping — omit it.
+---
+
 ## Roadmap
 
 - [x] Phase 1 — Idempotent, containerized ingestion
 - [x] Phase 2 — Orchestration (Airflow DAG: extract → validate → load)
-- [ ] Phase 3 — Transformation (dbt models splitting WTI / NatGas / XOM into staging views)
+- [x] Phase 3 — Transformation (dbt models splitting WTI / NatGas / XOM into staging views)
 - [ ] Phase 4 — Data quality gates (dbt tests / Great Expectations)
 - [ ] Phase 5 — Analytics layer (Metabase dashboards on price correlation, volatility)
