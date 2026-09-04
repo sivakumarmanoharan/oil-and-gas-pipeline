@@ -4,6 +4,7 @@ from airflow import DAG
 from datetime import datetime, timedelta, timezone
 from airflow.providers.docker.operators.docker import DockerOperator
 from docker.types import Mount
+from airflow.providers.standard.operators.bash import BashOperator
 
 
 DB_NAME = os.getenv("PIPELINE_DB_NAME")
@@ -49,3 +50,9 @@ with DAG(
         },
         auto_remove="success",
     )
+    dbt_run_task = BashOperator(
+        task_id="dbt_run",
+        bash_command="cd /opt/airflow/og_project && dbt run --profiles-dir /opt/airflow/og_project/profiles"
+    )
+
+    ingest_task >> dbt_run_task

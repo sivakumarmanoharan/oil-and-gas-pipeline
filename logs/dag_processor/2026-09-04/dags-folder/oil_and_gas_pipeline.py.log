@@ -1,0 +1,1 @@
+{"timestamp":"2026-09-04T22:04:41.110945Z","level":"info","event":"Filling up the DagBag from /opt/airflow/dags/oil_and_gas_pipeline.py","logger":"airflow.dag_processing.dagbag.BundleDagBag","filename":"dagbag.py","lineno":460}

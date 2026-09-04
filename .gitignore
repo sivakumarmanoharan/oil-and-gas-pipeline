@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 exxonmobildb/
 .env
+oil-and-gas-pipeline/logs/
