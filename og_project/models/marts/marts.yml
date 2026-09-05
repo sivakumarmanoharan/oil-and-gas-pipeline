@@ -1,0 +1,51 @@
+version : 2
+
+models:
+  - name: dim_commodity
+    columns:
+      - name: ticker
+        tests:
+          - not_null
+          - unique
+          - accepted_values:
+              arguments:
+                values: ['NG=F', 'CL=F', 'XOM']
+
+  - name: dim_date
+    columns:
+      - name: trade_date
+        tests: 
+          - not_null
+          - unique
+
+    
+  - name: fact_commodity_price
+    columns:
+      - name: trade_date
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: trade_date
+
+      - name: ticker
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_commodity')
+              field: ticker
+      - name: last_trading_price
+        tests:
+          - not_null
+      - name: highest_price
+        tests:
+          - not_null
+      - name: lowest_price
+        tests:
+          - not_null
+      - name: opening_price
+        tests:
+          - not_null
+      - name: trading_volume
+        tests:
+          - not_null

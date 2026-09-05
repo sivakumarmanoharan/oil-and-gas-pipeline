@@ -54,5 +54,9 @@ with DAG(
         task_id="dbt_run",
         bash_command="cd /opt/airflow/og_project && dbt run --profiles-dir /opt/airflow/og_project/profiles"
     )
+    dbt_test_task = BashOperator(
+        task_id="dbt_test",
+        bash_command="cd /opt/airflow/og_project && dbt test --profiles-dir /opt/airflow/og_project/profiles"
+    )
 
-    ingest_task >> dbt_run_task
+    ingest_task >> dbt_run_task >> dbt_test_task
