@@ -217,6 +217,18 @@ services:
       _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
       _PIP_ADDITIONAL_REQUIREMENTS: ''
     user: "0:0"
+  
+  metabase:
+    image: metabase/metabase:latest
+    ports:
+      - "3000:3000"
+    volumes:
+    - ./metabase-data/metabase.db:/metabase-data
+    environment:
+      MB_DB_FILE: /metabase-data/metabase.db
+    depends_on:
+      postgres-pipeline:
+        condition: service_healthy
 
 volumes:
   postgres-airflow-db-volume:
